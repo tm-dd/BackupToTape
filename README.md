@@ -19,4 +19,3 @@ This can do the following with the content of this folders and the file:
 All steps and the used commands will write to a text file for the user.
 
 Thomas Mueller <><
-# BackupToTape
