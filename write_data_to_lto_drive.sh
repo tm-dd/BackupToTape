@@ -2,7 +2,7 @@
 #
 # a basic script to write data to a tape drive
 #
-# Copyright (c) 2024 tm-dd (Thomas Mueller)
+# Copyright (c) 2025 tm-dd (Thomas Mueller) - https://github.com/tm-dd/BackupToTape
 # 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -23,51 +23,75 @@
 # IN THE SOFTWARE.
 #
 
-tapeDrive=/dev/nst0
-tarBlockingFactorOptionalOption='--blocking-factor=2048'
-tarCreateOptions="-c ${tarBlockingFactorOptionalOption}"
-tarReadOptions=-"t -v ${tarBlockingFactorOptionalOption}"
-# tarCompressProgramAndOptions='pigz -3 -r'
-tarCompressProgramAndOptions=''
-
-pipeTarToDd='n'
+# settings
+tapeDrive='/dev/nst0'
+tarCreateOptions="-c --blocking-factor=2048"
+tarReadOptions="-v --blocking-factor=2048"
+ddBlockSize='1M'
+createCheckSumFile='y'
+createContenFile='y'
 ejectTapeAtWriteEnd='y'
 mailSendTo='root'
-createCheckSumFile='y'
+logFolder="/root/tape_backups"
 
+# files for logging the content
 timeFileNamesOffset=`date +"%Y-%m-%d_%H-%M"`
-logfile="/root/tape_backups/${timeFileNamesOffset}_tape_backup_notes.txt"
-tapeContentList="/root/tape_backups/${timeFileNamesOffset}_tape_backup_content.txt"
-md5ChecksumFile="/root/tape_backups/${timeFileNamesOffset}_tape_backup_checksums.md5"
+logFile="${logFolder}/${timeFileNamesOffset}_tape_backup_notes.txt"
+tapeContentFile="${logFolder}/${timeFileNamesOffset}_tape_backup_content.txt"
+md5ChecksumFile="${logFolder}/${timeFileNamesOffset}_tape_backup_checksums.md5"
+
+# use log folder
+mkdir -p "${logFolder}" || exit -1
 
 # write all stdout and stderr also into a file
-exec > >(tee "${logfile}") 2>&1
+exec > >(tee "${logFile}") 2>&1
 
-if [ -z "${1}" ]
+# check software
+if [ -z "`which tar`" ]; then echo "missing software 'tar'"; ( set -x; apt install tar ); fi
+if [ -z "`which sg_read_attr`" ]; then echo "miss software 'sg_read_attr' to read the serial number of the tape"; ( set -x; apt install sg3-utils ); fi
+if [ -z "`which dd`" ]; then echo "missing software 'dd'";  ( set -x; apt install coreutils ); fi
+if [ -z "`which pigz`" ]; then echo "missing software 'pigz'"; ( set -x; apt install pigz ); fi
+if [ -z "`which 7za`" ]; then echo "missing software '7za'"; ( set -x; apt install p7zip-full); fi
+if [ -z "`which parallel`" ]; then echo "missing software 'parallel'"; ( set -x; apt install parallel ); fi
+
+
+# check parameters
+if [ -z "${2}" ]
 then
 	echo
-	echo "try to write some data to ${tapeDrive}"
-	echo "USAGE: $0 tobackup1 [tobackup2] [...]"
+	echo "USAGE: $0 METHOD tobackup1 [tobackup2] [...]"
+	echo "METHODs: tar targz[1..9] tarxz[1..11]dd"
+	echo
+	echo "EXAMPLE: $0 tarxz3dd /etc /home"
+	echo
+	echo 'Please note the following information:
+- In the case that the backup was using tar with the option "--blocking-factor", please use the same option and value for the restore process.
+- The command tar do not create checksums for the data of the files in the tar archive. To be sure, that the content of the backup could be OK, please write the checksum file (option $createCheckSumFile) to the backup.
+- In the fist part of the tape you find the backups and if configured, the checksum file "'${md5ChecksumFile}'". 
+- In the second part you can find the text file "'${tapeContentFile}'", if configured, with the file names read from the backup of the tape.
+- Sometimes we had trouble by using "mt -f '${tapeDrive}' rsf 1". Better rewind to the start of the tape and use "mt -f '${tapeDrive}' fsf ..." to go to the nessesary part of the tape.
+- To restore a file of a tape it could be nessesary to read very long time for finding the start of the file on the tape.
+'
 	echo
 	exit -1
 fi
+mode="${1}"
+shift
+case "${mode}" in
+	tar) echo "WRITE TAPE WITHOUT ANY COMPRESSION.";;
+	targz1|targz2|targz3|targz4|targz5|targz6|targz7|targz8|targz9|tarxz1dd|tarxz2dd|tarxz3dd|tarxz4dd|tarxz5dd|tarxz6dd|tarxz7dd|tarxz8dd|tarxz9dd|tarxz10dd|tarxz11dd) echo "WRITE TAPE WITH THE COMPRESSION OPTION ${mode}.";;
+	*) echo -e "\n!!! ERROR, WRONG MODE. !!!"; $0; exit -1 ;;
+esac
 
 echo
-echo "start of: $0 $@"
+echo "start of: $0 $mode $@"
 echo
 date
 echo
 (set -x; pwd)
 echo
 
-if [ -z "`which sg_read_attr`" ]
-then 
-	echo "install software to read the serial number"
-	( set -x; apt install sg3-utils )
-	echo
-fi
-
-echo "tape on ${tapeDrive}"
+echo "some information about tape in ${tapeDrive}"
 sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB' || exit -1
 echo
 
@@ -76,136 +100,123 @@ echo "rewind ${tapeDrive}"
 ( set -x; mt -f ${tapeDrive} status )
 echo
 
-numOfFiles='?'
+numOfFiles='unknown number of'
 
 echo "checking the size of the backup data"
-fullSizeInGigaByte=0; 
-for lineInGigaByte in `du -s -BG $@ 2> /dev/null | awk '{ print $1 }' | sed 's/G$//'`
+fullSizeInMegaByte=0; 
+for lineInGigaByte in `du -s -BM $@ 2> /dev/null | awk '{ print $1 }' | sed 's/M$//'`
 do
-	let fullSizeInGigaByte=${fullSizeInGigaByte}+${lineInGigaByte}
+	fullSizeInMegaByte=${lineInGigaByte}
 done
 echo
 date
 echo
 
+maxMiBOfTape=`sg_read_attr ${tapeDrive} | grep 'Maximum capacity in partition' | awk -F ': ' '{ print $2 }'`
+ratio=$((${fullSizeInMegaByte}*100/${maxMiBOfTape}))
+if [ $ratio -gt 97 ] && [ "$mode" != "tar" ]; then echo -e "\nWARNING: MAYBE TO MUCH DATA FOR ONLY ONE TAPE WITH ${maxMiBOfTape} MiB. STOP HERE.\nYou can use the MODE 'tar' to use the tar option '--multi-volume' to do that.\n"; exit -1; else echo -e "\nThis should take around ${ratio}% capacity of the tape.\n"; fi
+
+# create a checksum file, if "${createCheckSumFile}" was 'y' in the settings
 if [ "${createCheckSumFile}" = 'y' ]
 then
 	rm -f "${md5ChecksumFile}"
-	echo "create checksum file '${md5ChecksumFile}' for a later file integrity check for the files (in total about ${fullSizeInGigaByte} GB) on the tape"
-	echo "create CHECKSUM file '${md5ChecksumFile}' for a later file integrity check for the files (in total about ${fullSizeInGigaByte} GB) on the tape" | mail -s 'start creating checksum file for data for the tape' ${mailSendTo}
+	echo "CREATE CHECKSUM FILE '${md5ChecksumFile}' for a later file integrity check for the files (in total about ${fullSizeInMegaByte} MB) on the tape"
+	echo "CREATE CHECKSUM FILE '${md5ChecksumFile}' for a later file integrity check for the files (in total about ${fullSizeInMegaByte} MB) on the tape" | mail -s 'start creating checksum file for data for the tape' ${mailSendTo}
 	if [ -n "`which parallel`" ]
 	then
 		find $@ -type f | parallel -j 16 md5sum > "${md5ChecksumFile}"
 	else
-		echo "missing software 'parallel'";
 		find $@ -type f -exec md5sum {} + > "${md5ChecksumFile}"
 	fi
+	ls -l "${md5ChecksumFile}"
 	numOfFiles=`wc -l "${md5ChecksumFile}" | awk '{ print $1 }'`
 	echo
 	date
 	echo
 fi
 
-if [ "${tarCompressProgramAndOptions}" != "" ]
+# write the data to the tape
+echo "WRITE the content of ${fullSizeInMegaByte} megamytes (and some more) with ${numOfFiles} files to the TAPE drive"
+echo "WRITE the content of ${fullSizeInMegaByte} megabytes (and some more) with ${numOfFiles} files to the TAPE drive" | mail -s "start writing data to tape" ${mailSendTo}
+case "${mode}" in
+	tar) (set -x; tar --multi-volume ${tarCreateOptions} -f ${tapeDrive} ${md5ChecksumFile} $@);;
+	targz1) (set -x; tar --use-compress-program='pigz -1 -r' ${tarCreateOptions} -f ${tapeDrive} ${md5ChecksumFile} $@);;
+	targz2) (set -x; tar --use-compress-program='pigz -2 -r' ${tarCreateOptions} -f ${tapeDrive} ${md5ChecksumFile} $@);;
+	targz3) (set -x; tar --use-compress-program='pigz -3 -r' ${tarCreateOptions} -f ${tapeDrive} ${md5ChecksumFile} $@);;
+	targz4) (set -x; tar --use-compress-program='pigz -4 -r' ${tarCreateOptions} -f ${tapeDrive} ${md5ChecksumFile} $@);;
+	targz5) (set -x; tar --use-compress-program='pigz -5 -r' ${tarCreateOptions} -f ${tapeDrive} ${md5ChecksumFile} $@);;
+	targz6) (set -x; tar --use-compress-program='pigz -6 -r' ${tarCreateOptions} -f ${tapeDrive} ${md5ChecksumFile} $@);;
+	targz7) (set -x; tar --use-compress-program='pigz -7 -r' ${tarCreateOptions} -f ${tapeDrive} ${md5ChecksumFile} $@);;
+	targz8) (set -x; tar --use-compress-program='pigz -8 -r' ${tarCreateOptions} -f ${tapeDrive} ${md5ChecksumFile} $@);;
+	targz9) (set -x; tar --use-compress-program='pigz -9 -r' ${tarCreateOptions} -f ${tapeDrive} ${md5ChecksumFile} $@);;
+	tarxz1dd) (set -x; tar ${tarCreateOptions} ${md5ChecksumFile} $@ | 7za a -txz -an -bd -si -so -mx=1 | dd of=${tapeDrive} bs=${ddBlockSize});;
+	tarxz2dd) (set -x; tar ${tarCreateOptions} ${md5ChecksumFile} $@ | 7za a -txz -an -bd -si -so -mx=2 | dd of=${tapeDrive} bs=${ddBlockSize});;
+	tarxz3dd) (set -x; tar ${tarCreateOptions} ${md5ChecksumFile} $@ | 7za a -txz -an -bd -si -so -mx=3 | dd of=${tapeDrive} bs=${ddBlockSize});;
+	tarxz4dd) (set -x; tar ${tarCreateOptions} ${md5ChecksumFile} $@ | 7za a -txz -an -bd -si -so -mx=4 | dd of=${tapeDrive} bs=${ddBlockSize});;
+	tarxz5dd) (set -x; tar ${tarCreateOptions} ${md5ChecksumFile} $@ | 7za a -txz -an -bd -si -so -mx=5 | dd of=${tapeDrive} bs=${ddBlockSize});;
+	tarxz6dd) (set -x; tar ${tarCreateOptions} ${md5ChecksumFile} $@ | 7za a -txz -an -bd -si -so -mx=6 | dd of=${tapeDrive} bs=${ddBlockSize});;
+	tarxz7dd) (set -x; tar ${tarCreateOptions} ${md5ChecksumFile} $@ | 7za a -txz -an -bd -si -so -mx=7 | dd of=${tapeDrive} bs=${ddBlockSize});;
+	tarxz8dd) (set -x; tar ${tarCreateOptions} ${md5ChecksumFile} $@ | 7za a -txz -an -bd -si -so -mx=8 | dd of=${tapeDrive} bs=${ddBlockSize});;
+	tarxz9dd) (set -x; tar ${tarCreateOptions} ${md5ChecksumFile} $@ | 7za a -txz -an -bd -si -so -mx=9 | dd of=${tapeDrive} bs=${ddBlockSize});;
+	tarxz10dd) (set -x; tar ${tarCreateOptions} ${md5ChecksumFile} $@ | 7za a -txz -an -bd -si -so -mx=10 | dd of=${tapeDrive} bs=${ddBlockSize});;
+	tarxz11dd) (set -x; tar ${tarCreateOptions} ${md5ChecksumFile} $@ | 7za a -txz -an -bd -si -so -mx=11 | dd of=${tapeDrive} bs=${ddBlockSize});;
+	*) echo -e "\n!!! WRONG MODE !!!"; $0; exit -1 ;;
+esac
+echo
+( set -x; mt -f ${tapeDrive} status | grep 'file number =' )
+echo
+date
+echo
+
+if [ "${createContenFile}" = "y" ]
 then
-	echo "write the COMPRESSED content of ${fullSizeInGigaByte} UNCOMPRESSED gigabytes (and some more) with ${numOfFiles} files to the tape drive"
-	echo "write the COMPRESSED content of ${fullSizeInGigaByte} UNCOMPRESSED gigabytes (and some more) with ${numOfFiles} files to the tape drive" | mail -s "start writing tape" ${mailSendTo}
+	# read the tape
+	echo "READ backup from TAPE and write the list of content to the file '${tapeContentFile}'"
+	echo "read backup from TAPE and write the list of content to the file '${tapeContentFile}'" | mail -s "start reading tape" ${mailSendTo}
 	echo
-	if [ "$pipeTarToDd" = 'y' ]
-	then
-		echo "using the following command line to write: tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} ${md5ChecksumFile} $@ | dd of=${tapeDrive} bs=1M"
-		( echo; set -x; time tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} ${md5ChecksumFile} $@ | dd of=${tapeDrive} bs=1M )
-	else
-		echo "using the following command line to write: tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} -f ${tapeDrive} ${md5ChecksumFile} $@"
-		( echo; set -x; time tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} -f ${tapeDrive} ${md5ChecksumFile} $@ )
-	fi
-else
-	echo "write the UNCOMPRESSED content of ${fullSizeInGigaByte} gigabytes (and some more) with ${numOfFiles} files to the tape drive"
-	echo "write the UNCOMPRESSED content of ${fullSizeInGigaByte} gigabytes (and some more) with ${numOfFiles} files to the tape drive" | mail -s "start writing tape" ${mailSendTo}
+	( set -x; mt -f ${tapeDrive} rewind )
+	( set -x; mt -f ${tapeDrive} status | grep 'file number =' )
 	echo
-	if [ "$pipeTarToDd" = 'y' ]
-	then
-		echo "using the following command line to write: tar ${tarCreateOptions} ${md5ChecksumFile} $@ | dd of=${tapeDrive} bs=1M"
-		( echo; set -x; time tar ${tarCreateOptions} ${md5ChecksumFile} $@ | dd of=${tapeDrive} bs=1M )
-	else
-		echo "using the following command line to write: tar --multi-volume ${tarCreateOptions} -f ${tapeDrive} ${md5ChecksumFile} $@"
-		( echo; set -x; time tar --multi-volume ${tarCreateOptions} -f ${tapeDrive} ${md5ChecksumFile} $@ )
-	fi
-fi
-echo
+	case "${mode}" in
+		tar) (set -x; tar -f ${tapeDrive} ${tarReadOptions} -t > "${tapeContentFile}");;
+		targz1|targz2|targz3|targz4|targz5|targz6|targz7|targz8|targz9) (set -x; dd if=${tapeDrive} bs=${ddBlockSize} | pigz -d | tar ${tarReadOptions} -t > "${tapeContentFile}");;
+		tarxz1dd|tarxz2dd|tarxz3dd|tarxz4dd|tarxz5dd|tarxz6dd|tarxz7dd|tarxz8dd|tarxz9dd|tarxz10dd|tarxz11dd) (set -x; tar -J -f ${tapeDrive} ${tarReadOptions} -t > "${tapeContentFile}");;
+		*) echo -e "\n!!! WRONG MODE !!!"; $0; exit -1 ;;
+	esac
+	echo
+	( set -x; wc -l "${tapeContentFile}" )
+	echo
+	date
+	echo
 
-( set -x; mt -f ${tapeDrive} status | grep 'file number =' )
+	# write list of the files from the last tape
+	echo "write the list of the content to the tape drive"
+	( set -x; mt -f ${tapeDrive} rewind )
+	( set -x; mt -f ${tapeDrive} fsf 1 )
+	( set -x; mt -f ${tapeDrive} status | grep 'file number =' )
+	echo
+	date
+	echo
+	( set -x; tar ${tarCreateOptions} -f ${tapeDrive} "${tapeContentFile}" )
+	echo 
+	( set -x; mt -f ${tapeDrive} status | grep 'file number =' )
+	echo
 
-echo
-date
-echo
-echo "read backup and write the list of content to the file '${tapeContentList}'"
-echo "read backup and write the list of content to the file '${tapeContentList}'" | mail -s "start reading tape" ${mailSendTo}
-echo
-( set -x; mt -f ${tapeDrive} rewind )
-( set -x; mt -f ${tapeDrive} status | grep 'file number =' )
-echo
-
-if [ "$pipeTarToDd" = 'y' ]
-then
-	if [ "${tarCompressProgramAndOptions}" != "" ]
-	then
-		echo "using the following command line to read: dd if=${tapeDrive} bs=1M | pigz -d | tar ${tarReadOptions} > "'"'${tapeContentList}'"'
-		( echo; set -x; time dd if=${tapeDrive} bs=1M | pigz -d | tar ${tarReadOptions} > "${tapeContentList}"; wc -l "${tapeContentList}" )
-	else
-		echo "using the following command line to read: dd if=${tapeDrive} bs=1M | tar ${tarReadOptions} > "'"'${tapeContentList}'"'
-		( echo; set -x; time dd if=${tapeDrive} bs=1M | tar ${tarReadOptions} > "${tapeContentList}"; wc -l "${tapeContentList}" )
-	fi
-else
-	if [ "${tarCompressProgramAndOptions}" != "" ]
-	then
-		echo "using the following command line to read: dd if=${tapeDrive} bs=1M | pigz -d | tar ${tarReadOptions} >  "'"'${tapeContentList}'"'
-		( echo; set -x; time dd if=${tapeDrive} bs=1M | pigz -d | tar ${tarReadOptions} > "${tapeContentList}"; wc -l "${tapeContentList}" )
-	else
-		echo "using the following command line to read: tar ${tarReadOptions} -f ${tapeDrive} > "${tapeContentList}
-		( echo; set -x; time tar ${tarReadOptions} -f ${tapeDrive} > "${tapeContentList}"; wc -l "${tapeContentList}" )
-	fi
+	echo "rewind ${tapeDrive}"
+	( set -x; mt -f ${tapeDrive} rewind )
+	( set -x; mt -f ${tapeDrive} status | grep 'file number =' )
+	echo
+	date
+	echo
 fi
 
-echo
-date
-echo
-echo "write the list of the content to the tape drive"
-( set -x; mt -f ${tapeDrive} rewind )
-( set -x; mt -f ${tapeDrive} fsf 1 )
-( set -x; mt -f ${tapeDrive} status | grep 'file number =' )
-echo
-date
-echo
-if [ "$pipeTarToDd" = 'y' ]
-then
-	echo 'using the following command line to write: tar '${tarCreateOptions}' "'${tapeContentList}'" | dd of='${tapeDrive}' bs=1M'
-	( echo; set -x; tar ${tarCreateOptions} "${tapeContentList}" | dd of=${tapeDrive} bs=1M )
-else
-	echo 'using the following command line to write: tar '${tarCreateOptions}' -f '${tapeDrive}' "'${tapeContentList}'"'
-	( echo; set -x; tar ${tarCreateOptions} -f ${tapeDrive} "${tapeContentList}" )
-fi
-echo 
-
-( set -x; mt -f ${tapeDrive} status | grep 'file number =' )
-echo
-
-echo "rewind ${tapeDrive}"
-( set -x; mt -f ${tapeDrive} rewind )
-( set -x; mt -f ${tapeDrive} status | grep 'file number =' )
-echo
-
-echo "tape on ${tapeDrive}"
+echo "some information about tape in ${tapeDrive}"
 sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'
 echo
+if [ "${createContenFile}" = "y" ]; then (set -x; bzip2 -9 ${tapeContentFile} ${md5ChecksumFile}); echo; fi
+if [ "${createContenFile}" = "y" ]; then (set -x; bzip2 -9 ${md5ChecksumFile}); echo; fi
 
-date
-echo
-(set -x; bzip2 -9 ${tapeContentList} ${md5ChecksumFile})
-echo
-date
-echo
-echo "The backup could be finished now. Please read '${tapeContentList}.bz2'  and '${md5ChecksumFile}.bz2' for the content and the checksums of the backup on the tape and check the file '${logfile}'."
+echo "The backup could be finished now. Please check the files on '${logFolder}' later."
 echo
 if [ "${ejectTapeAtWriteEnd}" = 'y' ]
 then
@@ -214,8 +225,18 @@ then
 fi
 date
 echo
-echo "end of: $0 $@"
+
+echo "To restore the full backup you can try the folowing command:"
+echo -n "mt -f /dev/nst0 rewind; "
+case "${mode}" in
+	tar) echo "tar -f ${tapeDrive} ${tarReadOptions} -x";;
+	targz1|targz2|targz3|targz4|targz5|targz6|targz7|targz8|targz9) echo "dd if=${tapeDrive} bs=${ddBlockSize} | pigz -d | tar ${tarReadOptions} -x";;
+	tarxz1dd|tarxz2dd|tarxz3dd|tarxz4dd|tarxz5dd|tarxz6dd|tarxz7dd|tarxz8dd|tarxz9dd|tarxz10dd|tarxz11dd) echo "tar -J -f ${tapeDrive} ${tarReadOptions} -x";;
+esac
 echo
-cat "${logfile}" | mail -s "tape backup finished" ${mailSendTo}
+
+echo "end of: $0 $mode $@"
+echo
+cat "${logFile}" | mail -s "tape BACKUP FINISHED" ${mailSendTo}
 
 exit 0
