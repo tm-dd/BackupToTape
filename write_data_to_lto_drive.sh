@@ -68,7 +68,7 @@ then
 - In the case that the backup was using tar with the option "--blocking-factor", please use the same option and value for the restore process.
 - The command tar do not create checksums for the data of the files in the tar archive. To be sure, that the content of the backup could be OK, please write the checksum file (option $createCheckSumFile) to the backup.
 - In the fist part of the tape you find the backups and if configured, the checksum file "'${md5ChecksumFile}'". 
-- In the second part you can find the text file "'${tapeContentFile}'", if configured, with the file names read from the backup of the tape.
+- In the second part you can find the bzip compressed text file "'${tapeContentFile}'", if configured, with the file names read from the backup of the tape.
 - Sometimes we had trouble by using "mt -f '${tapeDrive}' rsf 1". Better rewind to the start of the tape and use "mt -f '${tapeDrive}' fsf ..." to go to the nessesary part of the tape.
 - To restore a file of a tape it could be nessesary to read very long time for finding the start of the file on the tape.
 '
@@ -103,25 +103,37 @@ echo
 numOfFiles='unknown number of'
 
 echo "checking the size of the backup data"
-fullSizeInMegaByte=0; 
+fullSizeInMegaByte=0
 for lineInGigaByte in `du -s -BM $@ 2> /dev/null | awk '{ print $1 }' | sed 's/M$//'`
 do
-	fullSizeInMegaByte=${lineInGigaByte}
+	fullSizeInMegaByte=$((${lineInGigaByte}+${fullSizeInMegaByte}))
 done
 echo
 date
 echo
 
-maxMiBOfTape=`sg_read_attr ${tapeDrive} | grep 'Maximum capacity in partition' | awk -F ': ' '{ print $2 }'`
+ratio=0
+maxMiBOfTape=`sg_read_attr ${tapeDrive} | grep 'Maximum capacity in partition' | awk -F ': ' '{ print $2 }' || exit -1`
 ratio=$((${fullSizeInMegaByte}*100/${maxMiBOfTape}))
-if [ $ratio -gt 97 ] && [ "$mode" != "tar" ]; then echo -e "\nWARNING: MAYBE TO MUCH DATA FOR ONLY ONE TAPE WITH ${maxMiBOfTape} MiB. STOP HERE.\nYou can use the MODE 'tar' to use the tar option '--multi-volume' to do that.\n"; exit -1; else echo -e "\nThis should take around ${ratio}% capacity of the tape.\n"; fi
+if [ $ratio -gt 97 ] && [ "$mode" != "tar" ]
+then 
+	echo -e "\nWARNING: MAYBE TO MUCH DATA FOR ONLY ONE TAPE WITH ${maxMiBOfTape} MiB. STOP HERE.\nPlease use the uncompressed MODE 'tar' and use the option '--multi-volume' or split the backup.\n"
+	exit -1
+else
+	echo -e "\nThis should take around ${ratio}% capacity of the tape.\n"
+fi
+
+if [ $ratio -gt 100 ] && [ "$mode" = "tar" ]
+then
+	echo -e "The current backup can take around `echo $(($ratio/100+1))` tapes for the about ${fullSizeInMegaByte} MB of data." | mail -s "Note: The current backup can take more the one volumes." ${mailSendTo}
+fi
 
 # create a checksum file, if "${createCheckSumFile}" was 'y' in the settings
 if [ "${createCheckSumFile}" = 'y' ]
 then
 	rm -f "${md5ChecksumFile}"
-	echo "CREATE CHECKSUM FILE '${md5ChecksumFile}' for a later file integrity check for the files (in total about ${fullSizeInMegaByte} MB) on the tape"
-	echo "CREATE CHECKSUM FILE '${md5ChecksumFile}' for a later file integrity check for the files (in total about ${fullSizeInMegaByte} MB) on the tape" | mail -s 'start creating checksum file for data for the tape' ${mailSendTo}
+	echo "CREATE CHECKSUM FILE '${md5ChecksumFile}' for a later file integrity check for the files (in total about ${fullSizeInMegaByte} MB) on the backup. This can take a lot of time."
+	echo "CREATE CHECKSUM FILE '${md5ChecksumFile}' for a later file integrity check for the files (in total about ${fullSizeInMegaByte} MB) on the backup. This can take a lot of time." | mail -s "start creating checksum file for the new tape backup" ${mailSendTo}
 	if [ -n "`which parallel`" ]
 	then
 		find $@ -type f | parallel -j 16 md5sum > "${md5ChecksumFile}"
@@ -135,9 +147,11 @@ then
 	echo
 fi
 
+serialNumberOfFirstTape=`sg_read_attr /dev/nst0 | grep 'Medium serial number' | awk -F ': ' '{ print $2 }'`
+
 # write the data to the tape
-echo "WRITE the content of ${fullSizeInMegaByte} megamytes (and some more) with ${numOfFiles} files to the TAPE drive"
-echo "WRITE the content of ${fullSizeInMegaByte} megabytes (and some more) with ${numOfFiles} files to the TAPE drive" | mail -s "start writing data to tape" ${mailSendTo}
+echo "WRITE the content of ${fullSizeInMegaByte} megamytes (and some more) with ${numOfFiles} files to the TAPE drive."
+echo "WRITE the content of ${fullSizeInMegaByte} megabytes (and some more) with ${numOfFiles} files to the TAPE drive." | mail -s "start writing data to the tape drive" ${mailSendTo}
 case "${mode}" in
 	tar) (set -x; tar --multi-volume ${tarCreateOptions} -f ${tapeDrive} ${md5ChecksumFile} $@);;
 	targz1) (set -x; tar --use-compress-program='pigz -1 -r' ${tarCreateOptions} -f ${tapeDrive} ${md5ChecksumFile} $@);;
@@ -168,11 +182,22 @@ echo
 date
 echo
 
+serialNumberOfCurrentTape=`sg_read_attr /dev/nst0 | grep 'Medium serial number' | awk -F ': ' '{ print $2 }'`
+
 if [ "${createContenFile}" = "y" ]
 then
+
+	# change tape to tape number one, if more the one tape was written
+	if [ "${serialNumberOfFirstTape}" != "${serialNumberOfCurrentTape}" ]
+	then
+		( set -x; mt -f ${tapeDrive} rewind )
+		echo -n "Insert tape 1 and press return to read the content of the tape:"
+		read
+	fi
+
 	# read the tape
-	echo "READ backup from TAPE and write the list of content to the file '${tapeContentFile}'"
-	echo "read backup from TAPE and write the list of content to the file '${tapeContentFile}'" | mail -s "start reading tape" ${mailSendTo}
+	echo "READ backup from TAPE and write the list of content to the file '${tapeContentFile}'."
+	echo "READ backup from TAPE and write the list of content to the file '${tapeContentFile}'." | mail -s "start reading data from the tape drive" ${mailSendTo}
 	echo
 	( set -x; mt -f ${tapeDrive} rewind )
 	( set -x; mt -f ${tapeDrive} status | grep 'file number =' )
@@ -189,7 +214,11 @@ then
 	date
 	echo
 
+	# compress content file
+	(set -x; bzip2 -9 "${tapeContentFile}"; ls -lh "${tapeContentFile}.bz2" )
+
 	# write list of the files from the last tape
+	echo
 	echo "write the list of the content to the tape drive"
 	( set -x; mt -f ${tapeDrive} rewind )
 	( set -x; mt -f ${tapeDrive} fsf 1 )
@@ -197,7 +226,7 @@ then
 	echo
 	date
 	echo
-	( set -x; tar ${tarCreateOptions} -f ${tapeDrive} "${tapeContentFile}" )
+	( set -x; tar ${tarCreateOptions} -f ${tapeDrive} --multi-volume "${tapeContentFile}.bz2" )
 	echo 
 	( set -x; mt -f ${tapeDrive} status | grep 'file number =' )
 	echo
@@ -210,11 +239,10 @@ then
 	echo
 fi
 
-echo "some information about tape in ${tapeDrive}"
+echo "some information about the tape in ${tapeDrive}"
 sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'
 echo
-if [ "${createContenFile}" = "y" ]; then (set -x; bzip2 -9 ${tapeContentFile} ${md5ChecksumFile}); echo; fi
-if [ "${createContenFile}" = "y" ]; then (set -x; bzip2 -9 ${md5ChecksumFile}); echo; fi
+if [ "${createCheckSumFile}" = "y" ]; then (set -x; bzip2 -9 ${md5ChecksumFile}); echo; fi
 
 echo "The backup could be finished now. Please check the files on '${logFolder}' later."
 echo
