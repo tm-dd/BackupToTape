@@ -191,8 +191,15 @@ then
 	if [ "${serialNumberOfFirstTape}" != "${serialNumberOfCurrentTape}" ]
 	then
 		( set -x; mt -f ${tapeDrive} rewind )
-		echo -n "Insert tape 1 and press return to read the content of the tape:"
-		read
+		echo -e "INSERT TAPE 1 TO READ the content.\n"
+		answer='n'
+		while [ "$answer" != "y" ]
+		do
+			sleep 1
+			echo -n "Are you ready (y/*) ? "
+			read answer
+		done
+		echo
 	fi
 
 	# read the tape
@@ -203,7 +210,7 @@ then
 	( set -x; mt -f ${tapeDrive} status | grep 'file number =' )
 	echo
 	case "${mode}" in
-		tar) (set -x; tar -f ${tapeDrive} ${tarReadOptions} -t > "${tapeContentFile}");;
+		tar) (set -x; tar --multi-volume -f ${tapeDrive} ${tarReadOptions} -t > "${tapeContentFile}");;
 		targz1|targz2|targz3|targz4|targz5|targz6|targz7|targz8|targz9) (set -x; dd if=${tapeDrive} bs=${ddBlockSize} | pigz -d | tar ${tarReadOptions} -t > "${tapeContentFile}");;
 		tarxz1dd|tarxz2dd|tarxz3dd|tarxz4dd|tarxz5dd|tarxz6dd|tarxz7dd|tarxz8dd|tarxz9dd|tarxz10dd|tarxz11dd) (set -x; tar -J -f ${tapeDrive} ${tarReadOptions} -t > "${tapeContentFile}");;
 		*) echo -e "\n!!! WRONG MODE !!!"; $0; exit -1 ;;
@@ -226,7 +233,7 @@ then
 	echo
 	date
 	echo
-	( set -x; tar ${tarCreateOptions} -f ${tapeDrive} --multi-volume "${tapeContentFile}.bz2" )
+	( set -x; tar ${tarCreateOptions} --multi-volume -f ${tapeDrive} --multi-volume "${tapeContentFile}.bz2" )
 	echo 
 	( set -x; mt -f ${tapeDrive} status | grep 'file number =' )
 	echo
@@ -257,7 +264,7 @@ echo
 echo "To restore the full backup you can try the folowing command:"
 echo -n "mt -f /dev/nst0 rewind; "
 case "${mode}" in
-	tar) echo "tar -f ${tapeDrive} ${tarReadOptions} -x";;
+	tar) echo "tar --multi-volume -f ${tapeDrive} ${tarReadOptions} -x";;
 	targz1|targz2|targz3|targz4|targz5|targz6|targz7|targz8|targz9) echo "dd if=${tapeDrive} bs=${ddBlockSize} | pigz -d | tar ${tarReadOptions} -x";;
 	tarxz1dd|tarxz2dd|tarxz3dd|tarxz4dd|tarxz5dd|tarxz6dd|tarxz7dd|tarxz8dd|tarxz9dd|tarxz10dd|tarxz11dd) echo "tar -J -f ${tapeDrive} ${tarReadOptions} -x";;
 esac
