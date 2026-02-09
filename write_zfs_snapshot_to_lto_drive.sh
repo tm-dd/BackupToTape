@@ -28,6 +28,7 @@
 # settings
 tapeDrive='/dev/nst0'
 ddBlockSizeInMiB='1'
+reserveBlocksForTapePartition='1'
 mailSendTo='root'
 logFolder="/root/tape_backups"
 
@@ -65,8 +66,8 @@ snapshotPath=`echo "$1" | awk -F '@' '{ print "/" $1 "/.zfs/snapshot/" $2 }'`
 cd "$snapshotPath" || exit -1
 
 # calculate the number of blocks for the tape drive
-maxMiBOfTape=`sg_read_attr ${tapeDrive} | grep 'Maximum capacity in partition' | awk -F ': ' '{ print $2 }' || exit -1`
-maxDdBlockNumbers=$(($((${maxMiBOfTape}/${ddBlockSizeInMiB}))-1))
+maxMiBOfTape=`sg_read_attr ${tapeDrive} | grep 'Remaining capacity in partition' | awk -F ': ' '{ print $2 }' || exit -1`
+maxDdBlockNumbers=$(($((${maxMiBOfTape}/${ddBlockSizeInMiB}))-$reserveBlocksForTapePartition))
 
 # calculate the number of nessesary tapes
 sizeInMiBOfSnapshot=`df -BM "${snapshotPath}" | tail -n 1 | awk '{ print $3 }' | sed 's/M//'`
