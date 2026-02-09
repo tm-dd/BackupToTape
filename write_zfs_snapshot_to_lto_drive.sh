@@ -91,13 +91,13 @@ do
 	done
 	echo
 
-	echo "some information about tape in ${tapeDrive}"
-	sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB' || exit -1
-	echo
-
 	echo "rewind ${tapeDrive}"
 	( set -x; mt -f ${tapeDrive} rewind )
 	( set -x; mt -f ${tapeDrive} status )
+	echo
+
+	echo "some information about tape in ${tapeDrive}"
+	sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB' || exit -1
 	echo
 
 	echo
