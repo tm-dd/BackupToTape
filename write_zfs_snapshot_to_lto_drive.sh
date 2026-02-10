@@ -91,7 +91,6 @@ do
 	done
 	echo
 
-	echo "rewind ${tapeDrive}"
 	( set -x; mt -f ${tapeDrive} rewind )
 	( set -x; mt -f ${tapeDrive} status )
 	echo
@@ -116,13 +115,12 @@ do
 	echo
 	echo "The tape $(($curTapeNumber+1)) is written. Read and check the content now ..."
 	echo
-	echo "rewind ${tapeDrive}"
 	( set -x; mt -f ${tapeDrive} rewind )
 	( set -x; mt -f ${tapeDrive} status )
 	echo
 	echo -n "md5sum of part $(($curTapeNumber+1)) after reading from tape: " >> $md5ChecksumFile
-	echo "+ dd if=$tapeDrive bs=${ddBlockSizeInMiB}M iflag=fullblock skip=$(($maxDdBlockNumbers*$curTapeNumber)) count=$maxDdBlockNumbers | md5sum >> $md5ChecksumFile"
-	dd if=$tapeDrive bs=${ddBlockSizeInMiB}M iflag=fullblock skip=$(($maxDdBlockNumbers*$curTapeNumber)) count=$maxDdBlockNumbers | md5sum >> $md5ChecksumFile
+	echo "+ dd if=$tapeDrive bs=${ddBlockSizeInMiB}M | md5sum >> $md5ChecksumFile"
+	dd if=$tapeDrive bs=${ddBlockSizeInMiB}M | md5sum >> $md5ChecksumFile
 	echo
 	( set -x; mt -f ${tapeDrive} eject )
 	echo
