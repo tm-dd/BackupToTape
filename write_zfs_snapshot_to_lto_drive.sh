@@ -118,7 +118,7 @@ do
 	( set -x; mt -f ${tapeDrive} rewind )
 	( set -x; mt -f ${tapeDrive} status )
 	echo
-	echo -n "md5sum of part $(($curTapeNumber+1)) after reading from tape: " >> $md5ChecksumFile
+	echo -n "md5sum of the zfs snapshot after reading tape $(($curTapeNumber+1)) : " >> $md5ChecksumFile
 	echo "+ dd if=$tapeDrive bs=${ddBlockSizeInMiB}M | md5sum >> $md5ChecksumFile"
 	dd if=$tapeDrive bs=${ddBlockSizeInMiB}M | md5sum >> $md5ChecksumFile
 	echo
