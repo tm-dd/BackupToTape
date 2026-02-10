@@ -104,11 +104,11 @@ do
 	echo -n "md5sum of the zfs snapshot to tape $(($curTapeNumber+1)) by creating: " >> $md5ChecksumFile
 	if [ "$2" = "" ]
 	then
-		# backup the full snapshot
-		( set -x; zfs send $1 | tee >( md5sum >> $md5ChecksumFile ) | dd bs=${ddBlockSizeInMiB}M skip=$(($maxDdBlockNumbers*$curTapeNumber)) count=$maxDdBlockNumbers of=$tapeDrive )
+		# backup the full snapshot (second dd is nessesary to define the size of the input blocks and the maximal length of the pipe part for the tape and md5sum)
+		( set -x; zfs send $1 | dd bs=${ddBlockSizeInMiB}M iflag=fullblock skip=$(($maxDdBlockNumbers*$curTapeNumber)) count=$maxDdBlockNumbers | tee >( md5sum >> $md5ChecksumFile ) | dd bs=${ddBlockSizeInMiB}M of=$tapeDrive )
 	else
-		# backup the incremental snapshot
-		( set -x; zfs send -i $1 $2 | tee >( md5sum >> $md5ChecksumFile ) | dd bs=${ddBlockSizeInMiB}M skip=$(($maxDdBlockNumbers*$curTapeNumber)) count=$maxDdBlockNumbers of=$tapeDrive )
+		# backup the incremental snapshot (second dd is nessesary to define the size of the input blocks and the maximal length of the pipe part for the tape and md5sum)
+		( set -x; zfs send -i $1 $2 | dd bs=${ddBlockSizeInMiB}M iflag=fullblock skip=$(($maxDdBlockNumbers*$curTapeNumber)) count=$maxDdBlockNumbers | tee >( md5sum >> $md5ChecksumFile ) | dd bs=${ddBlockSizeInMiB}M of=$tapeDrive )
 	fi
 	date
 	echo
@@ -119,7 +119,7 @@ do
 	( set -x; mt -f ${tapeDrive} status )
 	echo
 	echo -n "md5sum of part $(($curTapeNumber+1)) after reading from tape: " >> $md5ChecksumFile
-	( set -x; dd if=$tapeDrive bs=${ddBlockSizeInMiB}M skip=$(($maxDdBlockNumbers*$curTapeNumber)) count=$maxDdBlockNumbers | md5sum >> $md5ChecksumFile )
+	( set -x; dd if=$tapeDrive bs=${ddBlockSizeInMiB}M iflag=fullblock skip=$(($maxDdBlockNumbers*$curTapeNumber)) count=$maxDdBlockNumbers | md5sum >> $md5ChecksumFile )
 	echo
 	( set -x; mt -f ${tapeDrive} eject )
 	echo
@@ -149,7 +149,7 @@ To restore the full backup you can try the folowing commands:
 		done
 		echo
 		mt -f '$tapeDrive' rewind
-		dd if='$tapeDrive' bs='${ddBlockSizeInMiB}'M > /tmp/pipe
+		dd if='$tapeDrive' bs='${ddBlockSizeInMiB}'M iflag=fullblock > /tmp/pipe
 		mt -f '$tapeDrive' rewind
 		mt -f '${tapeDrive}' eject
 	done
