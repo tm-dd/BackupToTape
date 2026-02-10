@@ -105,10 +105,12 @@ do
 	if [ "$2" = "" ]
 	then
 		# backup the full snapshot (second dd is nessesary to define the size of the input blocks and the maximal length of the pipe part for the tape and md5sum)
-		( set -x; zfs send $1 | dd bs=${ddBlockSizeInMiB}M iflag=fullblock skip=$(($maxDdBlockNumbers*$curTapeNumber)) count=$maxDdBlockNumbers | tee >( md5sum >> $md5ChecksumFile ) | dd bs=${ddBlockSizeInMiB}M of=$tapeDrive )
+		echo "+ zfs send $1 | dd bs=${ddBlockSizeInMiB}M iflag=fullblock skip=$(($maxDdBlockNumbers*$curTapeNumber)) count=$maxDdBlockNumbers | tee >( md5sum >> $md5ChecksumFile ) | dd bs=${ddBlockSizeInMiB}M of=$tapeDrive"
+		zfs send $1 | dd bs=${ddBlockSizeInMiB}M iflag=fullblock skip=$(($maxDdBlockNumbers*$curTapeNumber)) count=$maxDdBlockNumbers | tee >( md5sum >> $md5ChecksumFile ) | dd bs=${ddBlockSizeInMiB}M of=$tapeDrive
 	else
 		# backup the incremental snapshot (second dd is nessesary to define the size of the input blocks and the maximal length of the pipe part for the tape and md5sum)
-		( set -x; zfs send -i $1 $2 | dd bs=${ddBlockSizeInMiB}M iflag=fullblock skip=$(($maxDdBlockNumbers*$curTapeNumber)) count=$maxDdBlockNumbers | tee >( md5sum >> $md5ChecksumFile ) | dd bs=${ddBlockSizeInMiB}M of=$tapeDrive )
+		echo "+ set -x; zfs send -i $1 $2 | dd bs=${ddBlockSizeInMiB}M iflag=fullblock skip=$(($maxDdBlockNumbers*$curTapeNumber)) count=$maxDdBlockNumbers | tee >( md5sum >> $md5ChecksumFile ) | dd bs=${ddBlockSizeInMiB}M of=$tapeDrive"
+		set -x; zfs send -i $1 $2 | dd bs=${ddBlockSizeInMiB}M iflag=fullblock skip=$(($maxDdBlockNumbers*$curTapeNumber)) count=$maxDdBlockNumbers | tee >( md5sum >> $md5ChecksumFile ) | dd bs=${ddBlockSizeInMiB}M of=$tapeDrive
 	fi
 	date
 	echo
@@ -119,7 +121,8 @@ do
 	( set -x; mt -f ${tapeDrive} status )
 	echo
 	echo -n "md5sum of part $(($curTapeNumber+1)) after reading from tape: " >> $md5ChecksumFile
-	( set -x; dd if=$tapeDrive bs=${ddBlockSizeInMiB}M iflag=fullblock skip=$(($maxDdBlockNumbers*$curTapeNumber)) count=$maxDdBlockNumbers | md5sum >> $md5ChecksumFile )
+	echo "+ dd if=$tapeDrive bs=${ddBlockSizeInMiB}M iflag=fullblock skip=$(($maxDdBlockNumbers*$curTapeNumber)) count=$maxDdBlockNumbers | md5sum >> $md5ChecksumFile"
+	dd if=$tapeDrive bs=${ddBlockSizeInMiB}M iflag=fullblock skip=$(($maxDdBlockNumbers*$curTapeNumber)) count=$maxDdBlockNumbers | md5sum >> $md5ChecksumFile
 	echo
 	( set -x; mt -f ${tapeDrive} eject )
 	echo
