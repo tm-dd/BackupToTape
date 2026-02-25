@@ -184,7 +184,7 @@ To restore the full backup you can try the following commands:
 		done
 		echo
 		mt -f '${tapeDrive}' rewind
-		dd if='${tapeDrive}' bs='${ddBlockSizeInMiB}'M iflag=fullblock > /tmp/pipe
+		dd if='${tapeDrive}' bs='${ddBlockSizeInMiB}'M > /tmp/pipe
 		mt -f '${tapeDrive}' rewind
 		mt -f '${tapeDrive}' eject
 	done
