@@ -46,6 +46,7 @@ exec > >(tee "${logFile}") 2>&1
 
 echo
 echo "START BACKUP '$0 $@'"
+echo
 
 # check software
 if [ -z "`which bzip2`" ]; then echo "missing software 'bzip2'"; ( set -x; apt install bzip2); fi
@@ -64,27 +65,14 @@ then
 	exit -1
 fi
 
+# check if the snapshot exists and give some notes about the snapshot
+/usr/sbin/zfs list -r -t snapshot "$1" -o name,refer,creation || exit -1
 echo
-( set -x; mt -f ${tapeDrive} rewind )
-echo
-
-# calculate the number of blocks for the tape drive
-maxMiBOfTape=`sg_read_attr ${tapeDrive} | grep 'Remaining capacity in partition' | awk -F ': ' '{ print $2 }' || exit -1`
-maxDdBlockNumbers=$(($((${maxMiBOfTape}/${ddBlockSizeInMiB}))-${reserveBlocksForTapePartition}))
-
-# calculate an print the minimal size of nessesary tapes
-snapshotPath=`echo "$1" | awk -F '@' '{ print "/" $1 "/.zfs/snapshot/" $2 }'`
-cd "${snapshotPath}" || exit -1
-sizeInMiBOfSnapshot=`df -BM "${snapshotPath}" | tail -n 1 | awk '{ print $3 }' | sed 's/M//'`
-numberOfTapes=$(($((${sizeInMiBOfSnapshot}/${maxMiBOfTape}))+1))
-if [ "$2" = "" ]
-then; echo "The backup should take MORE than ${sizeInMiBOfSnapshot} MiB and at least ${numberOfTapes} of such kind of tapes."
-else; echo "The full size of the first snapshot is ${sizeInMiBOfSnapshot} MiB. The size of the incremental backup is currently unknown."
-fi
 
 # write the tapes
 stopNow='no'
-${curTapeNumber}=0
+curTapeNumber=0
+skipBlockNumbers=0
 while [ "${stopNow}" != 'yes' ]
 do
 	echo
@@ -115,15 +103,16 @@ do
 
 	echo
 	echo -n "md5sum of the zfs snapshot to tape $((${curTapeNumber}+1)) by creating: " >> ${md5ChecksumFile}
+
 	if [ "$2" = "" ]
 	then
 		# backup the full snapshot (second dd is nessesary to define the size of the input blocks and the maximal length of the pipe part for the tape and md5sum)
-		echo "+ zfs send $1 | dd bs=${ddBlockSizeInMiB}M iflag=fullblock skip=$((${maxDdBlockNumbers}*${curTapeNumber})) count=${maxDdBlockNumbers} 2> /dev/null | tee >( md5sum >> ${md5ChecksumFile} ) | dd bs=${ddBlockSizeInMiB}M of=${tapeDrive}"
-		zfs send $1 | dd bs=${ddBlockSizeInMiB}M iflag=fullblock skip=$((${maxDdBlockNumbers}*${curTapeNumber})) count=${maxDdBlockNumbers} 2> /dev/null | tee >( md5sum >> ${md5ChecksumFile} ) | dd bs=${ddBlockSizeInMiB}M of=${tapeDrive}
+		echo "+ zfs send $1 | dd bs=${ddBlockSizeInMiB}M iflag=fullblock skip=${skipBlockNumbers} count=${maxDdBlockNumbers} 2> /dev/null | tee >( md5sum >> ${md5ChecksumFile} ) | dd bs=${ddBlockSizeInMiB}M of=${tapeDrive}"
+		zfs send $1 | dd bs=${ddBlockSizeInMiB}M iflag=fullblock skip=${skipBlockNumbers} count=${maxDdBlockNumbers} 2> /dev/null | tee >( md5sum >> ${md5ChecksumFile} ) | dd bs=${ddBlockSizeInMiB}M of=${tapeDrive}
 	else
 		# backup the incremental snapshot (second dd is nessesary to define the size of the input blocks and the maximal length of the pipe part for the tape and md5sum)
-		echo "+ set -x; zfs send -i $1 $2 | dd bs=${ddBlockSizeInMiB}M iflag=fullblock skip=$((${maxDdBlockNumbers}*${curTapeNumber})) count=${maxDdBlockNumbers} 2> /dev/null | tee >( md5sum >> ${md5ChecksumFile} ) | dd bs=${ddBlockSizeInMiB}M of=${tapeDrive}"
-		zfs send -i $1 $2 | dd bs=${ddBlockSizeInMiB}M iflag=fullblock skip=$((${maxDdBlockNumbers}*${curTapeNumber})) count=${maxDdBlockNumbers} 2> /dev/null | tee >( md5sum >> ${md5ChecksumFile} ) | dd bs=${ddBlockSizeInMiB}M of=${tapeDrive}
+		echo "+ set -x; zfs send -i $1 $2 | dd bs=${ddBlockSizeInMiB}M iflag=fullblock skip=${skipBlockNumbers} count=${maxDdBlockNumbers} 2> /dev/null | tee >( md5sum >> ${md5ChecksumFile} ) | dd bs=${ddBlockSizeInMiB}M of=${tapeDrive}"
+		zfs send -i $1 $2 | dd bs=${ddBlockSizeInMiB}M iflag=fullblock skip=${skipBlockNumbers} count=${maxDdBlockNumbers} 2> /dev/null | tee >( md5sum >> ${md5ChecksumFile} ) | dd bs=${ddBlockSizeInMiB}M of=${tapeDrive}
 	fi
 	# short wait of the end of writing
 	sleep 30
@@ -134,6 +123,7 @@ do
 	# because the value of 'Remaining capacity in partition' was not correct after writing in past, calculate the free size with the value of 'Total MiB written in current/last load'
 	currentWrittenMiBOfTape=`sg_read_attr ${tapeDrive} | grep 'Total MiB written in current/last load' | awk -F ': ' '{ print $2 }'`
 	lasttWrittenMiBOfTape=$((${currentWrittenMiBOfTape}-${byStartWrittenMiBOfTape}))
+	skipBlockNumbers=$((${skipBlockNumbers}+${maxDdBlockNumbers}))
 	freeMiBOfTape=$((${maxMiBOfTape}-${lasttWrittenMiBOfTape}))
 	reserveMiBForTapes=$((${ddBlockSizeInMiB}*${reserveBlocksForTapePartition}))
 
@@ -161,6 +151,9 @@ do
 	if [ ${freeMiBOfTape} -gt ${reserveMiBForTapes} ]
 	then
 		stopNow='yes'
+	else
+		# continute with next tape
+		curTapeNumber=$((${curTapeNumber}+1))
 	fi
 done
 
@@ -173,9 +166,12 @@ To restore the full backup you can try the following commands:
 	while sleep 1; do :; done > /tmp/pipe &
 	pipe_pid=$!
 
+	echo -n "How many tapes you have from this backup? "
+	read numberOfTapes
+
 	cat /tmp/pipe | zfs receive zfspool/restored &
 
-	for ((${curTapeNumber}=0; ${curTapeNumber}<'${numberOfTapes}'; ${curTapeNumber}++))
+	for ((curTapeNumber=0; ${curTapeNumber}<${numberOfTapes}; curTapeNumber++))
 	do
 		echo
 		echo "INSERT TAPE $((${curTapeNumber}+1)) to RESTORE the snapshot."

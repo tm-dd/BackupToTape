@@ -75,15 +75,8 @@ echo
 maxMiBOfTape=`sg_read_attr ${tapeDrive} | grep 'Remaining capacity in partition' | awk -F ': ' '{ print $2 }' || exit -1`
 maxMiBToReadForMbuffer=$((${maxMiBOfTape}-${reserveMiBOnTape}))
 
-# calculate an print the minimal size of nessesary tapes
-snapshotPath=`echo "$1" | awk -F '@' '{ print "/" $1 "/.zfs/snapshot/" $2 }'`
-cd "$snapshotPath" || exit -1
-sizeInMiBOfSnapshot=`df -BM "${snapshotPath}" | tail -n 1 | awk '{ print $3 }' | sed 's/M//'`
-numberOfTapes=$(($((${sizeInMiBOfSnapshot}/${maxMiBToReadForMbuffer}))+1))
-if [ "$2" = "" ]
-then; echo "The backup should take MORE than ${sizeInMiBOfSnapshot} MiB and at least ${numberOfTapes} tapes."
-else; echo "The full size of the first snapshot is ${sizeInMiBOfSnapshot} MiB. The size of the incremental backup is currently unknown."
-fi
+# check if the snapshot exists and give notes
+/usr/sbin/zfs list -r -t snapshot "$1" -o name,refer,creation || exit -1
 echo
 
 # start the backup
