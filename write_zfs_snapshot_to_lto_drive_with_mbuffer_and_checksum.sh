@@ -100,6 +100,7 @@ echo -n 'md5sum of the zfs read from tape: ' >> ${md5ChecksumFile}
 mt -f ${tapeDrive} rewind
 mbuffer -i "${tapeDrive}" -s "${mbufferBufferBlockSize}" -m "${mbufferBufferSizeReservedBeforeStart}" -P "${mbufferNeededPercentFillBeforeStart}" -l "${mbufferLogFile}" | md5sum >> "${md5ChecksumFile}"
 mt -f ${tapeDrive} rewind
+mt -f ${tapeDrive} eject
 echo
 
 echo "The backup could be finished now. Please check the files on '${logFolder}' later."
