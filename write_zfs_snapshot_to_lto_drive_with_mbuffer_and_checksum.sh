@@ -156,9 +156,21 @@ echo
 ( set -x; cat "${md5ChecksumFile}" )
 echo
 
+# create a file list of the snapshot
 if [ "${snapshotFileList}" != "" ]
 then
-	( set -x; pwd; find . -type f -ls > "${snapshotFileList}"; wc -l "${snapshotFileList}"; bzip2 -9 "${snapshotFileList}"; ls -lh "${snapshotFileList}.bz2" )
+	if [ "$2" = "" ]
+	then 
+		snapshotName=`echo "$1" | awk -F '@' '{ print $2 }'`
+	else
+		snapshotName=`echo "$2" | awk -F '@' '{ print $2 }'`
+	fi
+	snapshotMountPoint="`mount | grep 'zfspool/archive_important_data ' | awk -F ' ' '{ print $3 }'`/.zfs/snapshot/${snapshotName}"
+	cd "${snapshotMountPoint}"
+	if [ -d "${snapshotMountPoint}" ]
+	then
+		( set -x; pwd; find . -type f -ls > "${snapshotFileList}"; wc -l "${snapshotFileList}"; bzip2 -9 "${snapshotFileList}"; ls -lh "${snapshotFileList}.bz2" )
+	fi
 	echo
 fi
 
