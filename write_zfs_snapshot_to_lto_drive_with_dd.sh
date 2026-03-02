@@ -183,11 +183,15 @@ To restore the full backup you can try the following commands:
 			read answer
 		done
 		echo
+		echo -n "tape $((${curTapeNumber}+1)) : " >> /tmp/restored.md5
 		mt -f '${tapeDrive}' rewind
-		dd if='${tapeDrive}' bs='${ddBlockSizeInMiB}'M > /tmp/pipe
+		dd if='${tapeDrive}' bs='${ddBlockSizeInMiB}'M | tee >( md5sum >> /tmp/restored.md5 ) > /tmp/pipe
 		mt -f '${tapeDrive}' rewind
 		mt -f '${tapeDrive}' eject
 	done
+
+	echo "md5sums of readed tapes:"
+	cat /tmp/restored.md5
 
 	kill $pipe_pid
 	rm /tmp/pipe
