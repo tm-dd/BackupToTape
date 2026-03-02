@@ -115,7 +115,7 @@ To restore the full backup you can try the folowing commands:
 
       mt -f '${tapeDrive}' rewind
 
-      mbuffer -i '${tapeDrive}' -s '${mbufferBufferBlockSize}' -m '${mbufferBufferSizeReservedBeforeStart}' -P '${mbufferNeededPercentFillBeforeStart}' -l '${mbufferLogFile}' | zfs receive zfspool/restored
+      mbuffer -i '${tapeDrive}' -s '${mbufferBufferBlockSize}' -m '${mbufferBufferSizeReservedBeforeStart}' -P '${mbufferNeededPercentFillBeforeStart}' -l '${mbufferLogFile}' | tee >( md5sum > /tmp/restored.md5 ) | zfs receive zfspool/restored && echo -n "md5sum tape data: " ; cat /tmp/restored.md5
 
       mt -f '${tapeDrive}' rewind
       mt -f '${tapeDrive}' eject
@@ -134,7 +134,7 @@ To restore the full backup you can try the folowing commands:
 
       mt -f '${tapeDrive}' rewind
 
-      mbuffer -i '${tapeDrive}' -s '${mbufferBufferBlockSize}' -m '${mbufferBufferSizeReservedBeforeStart}' -P '${mbufferNeededPercentFillBeforeStart}' -l '${mbufferLogFile}' > /tmp/pipe
+      mbuffer -i '${tapeDrive}' -s '${mbufferBufferBlockSize}' -m '${mbufferBufferSizeReservedBeforeStart}' -P '${mbufferNeededPercentFillBeforeStart}' -l '${mbufferLogFile}' | tee >( md5sum > /tmp/restored.md5 ) > /tmp/pipe && echo -n "md5sum tape data: " ; cat /tmp/restored.md5
 
       mt -f '${tapeDrive}' rewind
       mt -f '${tapeDrive}' eject
