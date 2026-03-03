@@ -25,17 +25,18 @@
 # NOTE: the hint with keeping of the pipe was found on https://unix.stackexchange.com/questions/366219/prevent-automatic-eofs-to-a-named-pipe-and-send-an-eof-when-i-want-it
 #
 
-# settings
+#
+# settings (DO NOT USE WHITE SPACES IN THE FILE NAMES.)
+#
+
 tapeDrive='/dev/nst0'
 mailSendTo='root'
-logFolder="/root/tape_backups"
-mbufferLogFile='/tmp/mbuffer_tape_write.log'
+reserveMiBOnTape='1'
 mbufferBufferBlockSize='1M'
 mbufferBufferSizeReservedBeforeStart='7G'
 mbufferNeededPercentFillBeforeStart='80'
-reserveMiBOnTape='1'
-
-# files for logging the content
+mbufferLogFile='/tmp/mbuffer_tape_write.log'
+logFolder="/root/tape_backups"
 timeFileNamesOffset=`date +"%Y-%m-%d_%H-%M"`
 logFile="${logFolder}/${timeFileNamesOffset}_tape_backup_notes.txt"
 snapshotFileList="${logFolder}/${timeFileNamesOffset}_snapshot_content.txt"
@@ -83,14 +84,14 @@ then
 	echo "START NEW FULL BACKUP '$0 $@'"
 	echo
 	# backup the full snapshot
-	echo "+ zfs send $1 | mbuffer -s ${mbufferBufferBlockSize} -A \"echo; echo '---'; echo; date; echo; echo -n 'INSERT NEXT TAPE AND PRESS ENTER'; echo 'INSERT NEXT TAPE ON $HOSTNAME AND PRESS ENTER' | mail -s 'insert new tape' $mailSendTo; read temp < /dev/tty; echo;  echo 'some information about the next tape in ${tapeDrive}'; sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'; echo; date\" -m ${mbufferBufferSizeReservedBeforeStart} -P ${mbufferNeededPercentFillBeforeStart} -l ${mbufferLogFile} -q -o ${tapeDrive}"
-	zfs send $1 | mbuffer -s ${mbufferBufferBlockSize} -A "echo; echo '---'; echo; date; echo; echo -n 'INSERT NEXT TAPE AND PRESS ENTER'; echo 'INSERT NEXT TAPE ON $HOSTNAME AND PRESS ENTER' | mail -s 'insert new tape' $mailSendTo; read temp < /dev/tty; echo;  echo 'some information about the next tape in ${tapeDrive}'; sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'; echo; date" -m ${mbufferBufferSizeReservedBeforeStart} -P ${mbufferNeededPercentFillBeforeStart} -l ${mbufferLogFile} -q -o ${tapeDrive}
+	echo "+ zfs send $1 | mbuffer -s ${mbufferBufferBlockSize} -A \"echo; echo '---'; echo; date; echo; tail -n 1 ${mbufferLogFile}; echo; echo -n 'INSERT NEXT TAPE AND PRESS ENTER'; echo 'INSERT NEXT TAPE ON $HOSTNAME AND PRESS ENTER' | mail -s 'insert new tape' $mailSendTo; read temp < /dev/tty; echo;  echo 'some information about the next tape in ${tapeDrive}'; sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'; echo; date\" -m ${mbufferBufferSizeReservedBeforeStart} -P ${mbufferNeededPercentFillBeforeStart} -l ${mbufferLogFile} -q -o ${tapeDrive}"
+	zfs send $1 | mbuffer -s ${mbufferBufferBlockSize} -A "echo; echo '---'; echo; date; echo; tail -n 1 ${mbufferLogFile}; echo; echo -n 'INSERT NEXT TAPE AND PRESS ENTER'; echo 'INSERT NEXT TAPE ON $HOSTNAME AND PRESS ENTER' | mail -s 'insert new tape' $mailSendTo; read temp < /dev/tty; echo;  echo 'some information about the next tape in ${tapeDrive}'; sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'; echo; date" -m ${mbufferBufferSizeReservedBeforeStart} -P ${mbufferNeededPercentFillBeforeStart} -l ${mbufferLogFile} -q -o ${tapeDrive}
 else
 	echo "START NEW INCREMENTAL BACKUP '$0 $@'"
 	echo
 	# backup the incremental snapshot (second dd is nessesary to define the size of the input blocks and the maximal length of the pipe part for the tape and md5sum)
-	echo "+ zfs send -i $1 $2 | mbuffer -s ${mbufferBufferBlockSize} -A \"echo; echo '---'; echo; date; echo; echo -n 'INSERT NEXT TAPE AND PRESS ENTER'; echo 'INSERT NEXT TAPE ON $HOSTNAME AND PRESS ENTER' | mail -s 'insert new tape' $mailSendTo; read temp < /dev/tty; echo;  echo 'some information about the next tape in ${tapeDrive}'; sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'; echo; date\" -m ${mbufferBufferSizeReservedBeforeStart} -P ${mbufferNeededPercentFillBeforeStart} -l ${mbufferLogFile} -q -o ${tapeDrive}"
-	zfs send -i $1 $2 | mbuffer -s ${mbufferBufferBlockSize} -A "echo; echo '---'; echo; date; echo; echo -n 'INSERT NEXT TAPE AND PRESS ENTER'; echo 'INSERT NEXT TAPE ON $HOSTNAME AND PRESS ENTER' | mail -s 'insert new tape' $mailSendTo; read temp < /dev/tty; echo;  echo 'some information about the next tape in ${tapeDrive}'; sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'; echo; date" -m ${mbufferBufferSizeReservedBeforeStart} -P ${mbufferNeededPercentFillBeforeStart} -l ${mbufferLogFile} -q -o ${tapeDrive}
+	echo "+ zfs send -i $1 $2 | mbuffer -s ${mbufferBufferBlockSize} -A \"echo; echo '---'; echo; date; echo; tail -n 1 ${mbufferLogFile}; echo; echo -n 'INSERT NEXT TAPE AND PRESS ENTER'; echo 'INSERT NEXT TAPE ON $HOSTNAME AND PRESS ENTER' | mail -s 'insert new tape' $mailSendTo; read temp < /dev/tty; echo;  echo 'some information about the next tape in ${tapeDrive}'; sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'; echo; date\" -m ${mbufferBufferSizeReservedBeforeStart} -P ${mbufferNeededPercentFillBeforeStart} -l ${mbufferLogFile} -q -o ${tapeDrive}"
+	zfs send -i $1 $2 | mbuffer -s ${mbufferBufferBlockSize} -A "echo; echo '---'; echo; date; echo; tail -n 1 ${mbufferLogFile}; echo; echo -n 'INSERT NEXT TAPE AND PRESS ENTER'; echo 'INSERT NEXT TAPE ON $HOSTNAME AND PRESS ENTER' | mail -s 'insert new tape' $mailSendTo; read temp < /dev/tty; echo;  echo 'some information about the next tape in ${tapeDrive}'; sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'; echo; date" -m ${mbufferBufferSizeReservedBeforeStart} -P ${mbufferNeededPercentFillBeforeStart} -l ${mbufferLogFile} -q -o ${tapeDrive}
 fi
 
 echo "The backup could be finished now. Please check the files on '${logFolder}' later."

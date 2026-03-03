@@ -25,14 +25,15 @@
 # NOTE: the hint with keeping of the pipe was found on https://unix.stackexchange.com/questions/366219/prevent-automatic-eofs-to-a-named-pipe-and-send-an-eof-when-i-want-it
 #
 
-# settings
+#
+# settings (DO NOT USE WHITE SPACES IN THE FILE NAMES.)
+#
+
 tapeDrive='/dev/nst0'
+mailSendTo='root'
 ddBlockSizeInMiB='1'
 reserveBlocksForTapePartition='1'
-mailSendTo='root'
 logFolder="/root/tape_backups"
-
-# files for logging the content
 timeFileNamesOffset=`date +"%Y-%m-%d_%H-%M"`
 logFile="${logFolder}/${timeFileNamesOffset}_tape_backup_notes.txt"
 md5ChecksumFile="${logFolder}/${timeFileNamesOffset}_snapshot_md5sums.md5"
