@@ -35,7 +35,8 @@ reserveMiBOnTape='1'
 mbufferBufferBlockSize='1M'
 mbufferBufferSizeReservedBeforeStart='7G'
 mbufferNeededPercentFillBeforeStart='80'
-mbufferLogFile='/tmp/mbuffer_tape.log'
+mbufferLogFile1='/tmp/mbuffer_tape_writing.log'
+mbufferLogFile2='/tmp/mbuffer_tape_reading.log'
 pipeForMd5sum='/tmp/tapechecker'
 logFolder='/root/tape_backups'
 timeFileNamesOffset=`date +'%Y-%m-%d_%H-%M'`
@@ -78,6 +79,7 @@ echo
 # check if the snapshot exists and give notes
 /usr/sbin/zfs list -r -t snapshot "$1" -o name,refer,creation || exit -1
 echo
+echo "Check the log files ${mbufferLogFile1} (for writing) and ${mbufferLogFile2} (for reading) durring the backup process."
 
 # start the checksum files
 echo -n "md5sum of the zfs snapshot to tape by creating: " > "${checksumFileWrited}"
@@ -90,9 +92,9 @@ while sleep 1; do :; done > "${pipeForMd5sum}" &
 pipeForMd5sumPid=$!
 md5sum "${pipeForMd5sum}" >> "${checksumFileReaded}" &
 sleep 3
-echo
 
 # start the backup
+echo
 date
 echo
 if [ "$2" = "" ]
@@ -100,28 +102,28 @@ then
 	echo "START NEW FULL BACKUP '$0 $@'"
 	echo
 	# backup the full snapshot
-	echo "+ zfs send $1 | mbuffer --md5 -s ${mbufferBufferBlockSize} -A \"tail -n 1 ${mbufferLogFile}; echo; date; echo; echo 'reading tape ...'; mt -f ${tapeDrive} rewind; mbuffer -i '${tapeDrive}' -s '${mbufferBufferBlockSize}' -m '${mbufferBufferSizeReservedBeforeStart}' -P '${mbufferNeededPercentFillBeforeStart}' -o ${pipeForMd5sum}; echo; tail -n 1 ${mbufferLogFile}; echo; date; echo; echo '---'; echo; echo -n 'INSERT NEXT TAPE AND PRESS ENTER'; echo 'INSERT NEXT TAPE ON $HOSTNAME AND PRESS ENTER' | mail -s 'insert new tape' $mailSendTo; read temp < /dev/tty; echo; echo 'some information about the next tape in ${tapeDrive}'; sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'; echo; date; echo; echo 'writing next tape ...'; echo\" -m ${mbufferBufferSizeReservedBeforeStart} -P ${mbufferNeededPercentFillBeforeStart} -l ${mbufferLogFile} -q >> ${tapeDrive}"
-	zfs send $1 | mbuffer --md5 -s ${mbufferBufferBlockSize} -A "tail -n 1 ${mbufferLogFile}; echo; date; echo; echo 'reading tape ...'; mt -f ${tapeDrive} rewind; mbuffer -i '${tapeDrive}' -s '${mbufferBufferBlockSize}' -m '${mbufferBufferSizeReservedBeforeStart}' -P '${mbufferNeededPercentFillBeforeStart}' >> ${pipeForMd5sum}; echo; tail -n 1 ${mbufferLogFile}; echo; date; echo; echo '---'; echo; echo -n 'INSERT NEXT TAPE AND PRESS ENTER'; echo 'INSERT NEXT TAPE ON $HOSTNAME AND PRESS ENTER' | mail -s 'insert new tape' $mailSendTo; read temp < /dev/tty; echo; echo 'some information about the next tape in ${tapeDrive}'; sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'; echo; date; echo; echo 'writing next tape ...'; echo" -m ${mbufferBufferSizeReservedBeforeStart} -P ${mbufferNeededPercentFillBeforeStart} -l ${mbufferLogFile} -q -o ${tapeDrive}
+	echo "+ zfs send $1 | mbuffer --md5 -s ${mbufferBufferBlockSize} -A \"tail -n 1 ${mbufferLogFile1}; echo; date; echo; echo 'reading tape ...'; mt -f ${tapeDrive} rewind; mbuffer -i '${tapeDrive}' -s '${mbufferBufferBlockSize}' -m '${mbufferBufferSizeReservedBeforeStart}' -P '${mbufferNeededPercentFillBeforeStart}' -l ${mbufferLogFile2} >> ${pipeForMd5sum}; echo; tail -n 1 ${mbufferLogFile2}; echo; date; echo; echo '---'; echo; echo -n 'INSERT NEXT TAPE AND PRESS ENTER'; echo 'INSERT NEXT TAPE ON $HOSTNAME AND PRESS ENTER' | mail -s 'insert new tape' $mailSendTo; read temp < /dev/tty; echo; echo 'some information about the next tape in ${tapeDrive}'; sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'; echo; date; echo; echo 'writing next tape ...'; echo\" -m ${mbufferBufferSizeReservedBeforeStart} -P ${mbufferNeededPercentFillBeforeStart} -l ${mbufferLogFile1} -q -o ${tapeDrive}"
+	zfs send $1 | mbuffer --md5 -s ${mbufferBufferBlockSize} -A "tail -n 1 ${mbufferLogFile1}; echo; date; echo; echo 'reading tape ...'; mt -f ${tapeDrive} rewind; mbuffer -i '${tapeDrive}' -s '${mbufferBufferBlockSize}' -m '${mbufferBufferSizeReservedBeforeStart}' -P '${mbufferNeededPercentFillBeforeStart}' -l ${mbufferLogFile2} >> ${pipeForMd5sum}; echo; tail -n 1 ${mbufferLogFile2}; echo; date; echo; echo '---'; echo; echo -n 'INSERT NEXT TAPE AND PRESS ENTER'; echo 'INSERT NEXT TAPE ON $HOSTNAME AND PRESS ENTER' | mail -s 'insert new tape' $mailSendTo; read temp < /dev/tty; echo; echo 'some information about the next tape in ${tapeDrive}'; sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'; echo; date; echo; echo 'writing next tape ...'; echo" -m ${mbufferBufferSizeReservedBeforeStart} -P ${mbufferNeededPercentFillBeforeStart} -l ${mbufferLogFile1} -q -o ${tapeDrive}
 else
 	echo "START NEW INCREMENTAL BACKUP '$0 $@'"
 	echo
 	# backup the incremental snapshot
-	echo "+ zfs send -i $1 $2 | mbuffer --md5 -s ${mbufferBufferBlockSize} -A \"tail -n 1 ${mbufferLogFile}; echo; date; echo; echo 'reading tape ...'; mt -f ${tapeDrive} rewind; mbuffer -i '${tapeDrive}' -s '${mbufferBufferBlockSize}' -m '${mbufferBufferSizeReservedBeforeStart}' -P '${mbufferNeededPercentFillBeforeStart}' -o ${pipeForMd5sum}; echo; tail -n 1 ${mbufferLogFile}; echo; date; echo; echo '---'; echo; echo -n 'INSERT NEXT TAPE AND PRESS ENTER'; echo 'INSERT NEXT TAPE ON $HOSTNAME AND PRESS ENTER' | mail -s 'insert new tape' $mailSendTo; read temp < /dev/tty; echo; echo 'some information about the next tape in ${tapeDrive}'; sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'; echo; date; echo; echo 'writing next tape ...'; echo\" -m ${mbufferBufferSizeReservedBeforeStart} -P ${mbufferNeededPercentFillBeforeStart} -l ${mbufferLogFile} -q >> ${tapeDrive}"
-	zfs send -i $1 $2 | mbuffer --md5 -s ${mbufferBufferBlockSize} -A "tail -n 1 ${mbufferLogFile}; echo; date; echo; echo 'reading tape ...'; mt -f ${tapeDrive} rewind; mbuffer -i '${tapeDrive}' -s '${mbufferBufferBlockSize}' -m '${mbufferBufferSizeReservedBeforeStart}' -P '${mbufferNeededPercentFillBeforeStart}' >> ${pipeForMd5sum}; echo; tail -n 1 ${mbufferLogFile}; echo; date; echo; echo '---'; echo; echo -n 'INSERT NEXT TAPE AND PRESS ENTER'; echo 'INSERT NEXT TAPE ON $HOSTNAME AND PRESS ENTER' | mail -s 'insert new tape' $mailSendTo; read temp < /dev/tty; echo; echo 'some information about the next tape in ${tapeDrive}'; sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'; echo; date; echo; echo 'writing next tape ...'; echo" -m ${mbufferBufferSizeReservedBeforeStart} -P ${mbufferNeededPercentFillBeforeStart} -l ${mbufferLogFile} -q -o ${tapeDrive}
+	echo "+ zfs send -i $1 $2 | mbuffer --md5 -s ${mbufferBufferBlockSize} -A \"tail -n 1 ${mbufferLogFile1}; echo; date; echo; echo 'reading tape ...'; mt -f ${tapeDrive} rewind; mbuffer -i '${tapeDrive}' -s '${mbufferBufferBlockSize}' -m '${mbufferBufferSizeReservedBeforeStart}' -P '${mbufferNeededPercentFillBeforeStart}' -l ${mbufferLogFile2} >> ${pipeForMd5sum}; echo; tail -n 1 ${mbufferLogFile2}; echo; date; echo; echo '---'; echo; echo -n 'INSERT NEXT TAPE AND PRESS ENTER'; echo 'INSERT NEXT TAPE ON $HOSTNAME AND PRESS ENTER' | mail -s 'insert new tape' $mailSendTo; read temp < /dev/tty; echo; echo 'some information about the next tape in ${tapeDrive}'; sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'; echo; date; echo; echo 'writing next tape ...'; echo\" -m ${mbufferBufferSizeReservedBeforeStart} -P ${mbufferNeededPercentFillBeforeStart} -l ${mbufferLogFile1} -q -o ${tapeDrive}"
+	zfs send -i $1 $2 | mbuffer --md5 -s ${mbufferBufferBlockSize} -A "tail -n 1 ${mbufferLogFile1}; echo; date; echo; echo 'reading tape ...'; mt -f ${tapeDrive} rewind; mbuffer -i '${tapeDrive}' -s '${mbufferBufferBlockSize}' -m '${mbufferBufferSizeReservedBeforeStart}' -P '${mbufferNeededPercentFillBeforeStart}' -l ${mbufferLogFile2} >> ${pipeForMd5sum}; echo; tail -n 1 ${mbufferLogFile2}; echo; date; echo; echo '---'; echo; echo -n 'INSERT NEXT TAPE AND PRESS ENTER'; echo 'INSERT NEXT TAPE ON $HOSTNAME AND PRESS ENTER' | mail -s 'insert new tape' $mailSendTo; read temp < /dev/tty; echo; echo 'some information about the next tape in ${tapeDrive}'; sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'; echo; date; echo; echo 'writing next tape ...'; echo" -m ${mbufferBufferSizeReservedBeforeStart} -P ${mbufferNeededPercentFillBeforeStart} -l ${mbufferLogFile1} -q -o ${tapeDrive}
 
 fi
-grep ' hash:' ${mbufferLogFile} >> "${checksumFileWrited}"
-tail -n 1 ${mbufferLogFile}
+grep ' hash:' ${mbufferLogFile1} >> "${checksumFileWrited}"
+tail -n 1 ${mbufferLogFile1}
 echo
 date
 echo
 echo 'reading last tape ...'
 mt -f ${tapeDrive} rewind
-mbuffer -i "${tapeDrive}" -s "${mbufferBufferBlockSize}" -m "${mbufferBufferSizeReservedBeforeStart}" -P "${mbufferNeededPercentFillBeforeStart}" -l "${mbufferLogFile}" >> "${pipeForMd5sum}"
+mbuffer -i "${tapeDrive}" -s "${mbufferBufferBlockSize}" -m "${mbufferBufferSizeReservedBeforeStart}" -P "${mbufferNeededPercentFillBeforeStart}" -l "${mbufferLogFile1}" >> "${pipeForMd5sum}"
 mt -f ${tapeDrive} rewind
 mt -f ${tapeDrive} eject
 echo
-tail -n 1 ${mbufferLogFile}
+tail -n 1 ${mbufferLogFile2}
 echo
 date
 echo
@@ -144,7 +146,7 @@ To restore the full backup you can try the folowing commands:
 
       mt -f '${tapeDrive}' rewind
 
-      mbuffer --md5 -i '${tapeDrive}' -s '${mbufferBufferBlockSize}' -m '${mbufferBufferSizeReservedBeforeStart}' -P '${mbufferNeededPercentFillBeforeStart}' -l '${mbufferLogFile}' | zfs receive zfspool/restored
+      mbuffer --md5 -i '${tapeDrive}' -s '${mbufferBufferBlockSize}' -m '${mbufferBufferSizeReservedBeforeStart}' -P '${mbufferNeededPercentFillBeforeStart}' -l '${mbufferLogFile2}' | zfs receive zfspool/restored
 
       mt -f '${tapeDrive}' rewind
       mt -f '${tapeDrive}' eject
@@ -163,7 +165,7 @@ To restore the full backup you can try the folowing commands:
 
       mt -f '${tapeDrive}' rewind
 
-      mbuffer --md5 -i '${tapeDrive}' -s '${mbufferBufferBlockSize}' -m '${mbufferBufferSizeReservedBeforeStart}' -P '${mbufferNeededPercentFillBeforeStart}' -l '${mbufferLogFile}' > /tmp/pipe
+      mbuffer --md5 -i '${tapeDrive}' -s '${mbufferBufferBlockSize}' -m '${mbufferBufferSizeReservedBeforeStart}' -P '${mbufferNeededPercentFillBeforeStart}' -l '${mbufferLogFile2}' > /tmp/pipe
 
       mt -f '${tapeDrive}' rewind
       mt -f '${tapeDrive}' eject
