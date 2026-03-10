@@ -119,7 +119,7 @@ date
 echo
 echo 'reading last tape ...'
 mt -f ${tapeDrive} rewind
-mbuffer -i "${tapeDrive}" -s "${mbufferBufferBlockSize}" -m "${mbufferBufferSizeReservedBeforeStart}" -P "${mbufferNeededPercentFillBeforeStart}" -l "${mbufferLogFile1}" >> "${pipeForMd5sum}"
+mbuffer -i "${tapeDrive}" -s "${mbufferBufferBlockSize}" -m "${mbufferBufferSizeReservedBeforeStart}" -P "${mbufferNeededPercentFillBeforeStart}" -l "${mbufferLogFile2}" >> "${pipeForMd5sum}"
 mt -f ${tapeDrive} rewind
 mt -f ${tapeDrive} eject
 echo
