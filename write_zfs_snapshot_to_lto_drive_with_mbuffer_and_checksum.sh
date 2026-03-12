@@ -146,7 +146,7 @@ To restore the full backup you can try the folowing commands:
 
       mt -f '${tapeDrive}' rewind
 
-      mbuffer -i '${tapeDrive}' -s '${mbufferBufferBlockSize}' -m '${mbufferBufferSizeReservedBeforeStart}' -P '${mbufferNeededPercentFillBeforeStart}' -l '${mbufferLogFile2}' | zfs receive zfspool/restored
+      mbuffer --md5 -i '${tapeDrive}' -s '${mbufferBufferBlockSize}' -m '${mbufferBufferSizeReservedBeforeStart}' -P '${mbufferNeededPercentFillBeforeStart}' -l '${mbufferLogFile2}' | zfs receive zfspool/restored
 
       mt -f '${tapeDrive}' rewind
       mt -f '${tapeDrive}' eject
